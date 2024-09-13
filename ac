@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Get the tag path
+tag_path=$(9p read acme/$winid/tag | sed -E 's/(\+| Del).*//')
+
+# Get the body content
+body=$(9p read acme/$winid/body)
+
+# Check if the first line contains session_id
+if [[ $(echo "$body" | head -n1) =~ session_id=([^ ]+) ]]; then
+    session_id="${BASH_REMATCH[1]}"
+else
+    # Generate session_id using aichat
+    session_id=$(aichat --prompt="summarize the following in three words separated by underscores followed by .ac. do not write anything else at all. just those three words separated by underscores followed by .ac. say nothing else at all!" "$1")
+
+    # Get the directory of tag_path
+    if [[ -d "$tag_path" ]]; then
+        dir_path="$tag_path"
+    else
+        dir_path=$(dirname "$tag_path")
+    fi
+
+    # Create the file with session_id
+    echo "# session_id=$session_id" > "$dir_path/$session_id"
+
+    cat $dir_path/$session_id
+    echo >> "$dir_path/$session_id"
+    echo >> "$dir_path/$session_id"
+
+    # Open the file in acme
+    echo "name $dir_path/$session_id" | 9p write acme/new/ctl
+
+    # Get the new window ID
+    winid=$(9p ls acme | grep -E '^[0-9]+$' | sort -n | tail -n1)
+    echo "get" | 9p write acme/$winid/ctl
+    echo "ac" | 9p write acme/$winid/tag
+fi
+
+# Write the response to the acme window
+file_flags=""
+while IFS= read -r line; do
+    if [[ $line == !include* ]]; then
+        file_path="${line#!include }"
+        file_path="${file_path%$'\n'}"  # Remove any trailing newline
+        file_flags+=" -f $file_path"
+    fi
+done <<< "$1"
+
+# Write the response to the acme window
+echo "" | 9p write acme/$winid/body
+echo "" | 9p write acme/$winid/body
+echo "claude ($(date "+%Y-%m-%d %H:%M:%S")):" | 9p write acme/$winid/body
+aichat --session "$session_id" --save-session $file_flags "$1" | 9p write acme/$winid/body
+echo "" | 9p write acme/$winid/body
+echo "me:" | 9p write acme/$winid/body
